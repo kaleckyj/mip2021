@@ -1,4 +1,5 @@
 # timebomb
+![alt text](bomb.jpg "bomba")
 * nastaví počáteční čas na 2 minuty
 * po vypršení času "exploduje"
 * tlačítka plus, minus přidají/uberou po 1 vteřině
