@@ -8,42 +8,41 @@
 
 void mainDraw();
 void threadWork(int const *threadNum);
-void drawThread(int threadNum);
+void drawThread(int const *threadNum);
 bool touchDetected();
 void init();
 void drawMain();
 
 TS_StateTypeDef TS_State;
-Semaphore smphr(0);
-bool switchThread = false;
-bool mainShouldDraw = true;
+Semaphore smphr(1);
+volatile int repetition[THREAD_COUNT];
 
 int main()
 { 
-    init();      
-    int fi = 0;
-    
+    init();  
+          
     Thread threads[THREAD_COUNT];
-    for(int i = 0; i < THREAD_COUNT; i++) {
-        threads[i].start(callback(threadWork, (int *)i));
+    for (int i = 0; i < THREAD_COUNT; i++) {
+        repetition[i] = 0;
     }
     
+    int touchCount = 0;  
+    
     while(true) { //check for screen touch every 100ms
-        if (mainShouldDraw) {
-            drawMain();
-            mainShouldDraw = false;
-        }
         
-        if (touchDetected()) {   
-        
-            if (fi++ == 0) { smphr.release(); } else { switchThread = true; }   //release semaphore on first iteration        
+        if (touchDetected()) {
+            int mod = touchCount % THREAD_COUNT;
+            if (touchCount++ < THREAD_COUNT) {
+                threads[mod].start(callback(threadWork, (int *) mod));                  
+            }
+            repetition[mod]++;                       
             
             while (true) { //wait for screen touch release
                 if (!touchDetected()) { break; }
                 Thread::wait(100);
             }
         }    
-        Thread::wait(100);
+        HAL_Delay(100);
     }  
 }
 
@@ -53,9 +52,28 @@ bool touchDetected()
     if (TS_State.touchDetected != 0) { return true; } else { return false; }
 }
 
-void drawThread(int threadNum)
+void threadWork(int const *threadNum) 
+{   
+    while(true) {
+        if (0 < repetition[(uint32_t)threadNum]) {   
+        
+            smphr.wait();
+            
+            drawThread(threadNum);           
+            Thread::wait(THREAD_ACCESS_TIME);     
+        
+            repetition[(uint32_t)threadNum]--;            
+            int nextId = ( (uint32_t)threadNum + 1 ) % THREAD_COUNT;
+            if (repetition[nextId] == 0) { drawMain(); }
+            
+            smphr.release();            
+        }
+    }
+}
+
+void drawThread(int const *threadNum)
 {
-    switch (threadNum) {
+    switch ((uint32_t)threadNum) {
         case 0:
             BSP_LCD_Clear(LCD_COLOR_RED);
             BSP_LCD_SetBackColor(LCD_COLOR_RED);   
@@ -80,25 +98,7 @@ void drawThread(int threadNum)
     BSP_LCD_DisplayStringAt(0, LINE(5), (uint8_t *)str, CENTER_MODE);
 }
 
-void threadWork(int const *threadNum) 
-{   
-    while (true)
-    {
-        smphr.wait();       
-        mainShouldDraw = false;
-        drawThread((int)threadNum);           
-        Thread::wait(THREAD_ACCESS_TIME);         
-        mainShouldDraw = true;
-        while (true) {                    
-            if (switchThread) { 
-                switchThread = false;
-                smphr.release();
-                break;
-            } 
-            Thread::wait(100); 
-        }          
-    }
-}
+
 
 void init() {
     BSP_LCD_Init();
